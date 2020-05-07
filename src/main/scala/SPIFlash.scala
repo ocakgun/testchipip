@@ -18,22 +18,28 @@ class SPIFlashIO extends SPIChipIO(1) {
   val reset = Output(Reset()) // This is Output because we're going to flip it in the BlackBox
 }
 
+object SPIFlashPlusarg {
+  def apply(i: Int) = s"spiflash${id}"
+}
+
 class SimSPIFlashModel(capacityBytes: BigInt, id: Int) extends BlackBox(Map(
-  "MAX_ADDR" -> IntParam(capacityBytes-1),
-  "ID" -> IntParam(id))
+  "PLUSARG" -> StringParam(SPIFlashPlusarg(id)),
+  "CAPACITY_BYTES" -> IntParam(capacityBytes)
 ) with HasBlackBoxResource {
   val io = IO(Flipped(new SPIFlashIO()))
 
   // The model adds a +spiflash<ID>=<path> plusarg. It's not a numeric, so we can't use
   // plusarg_reader, but we can still add to the PlusArgArtefacts
   // Unfortunately it requires a numeric default, but that's really just a docstring issue
-  PlusArgArtefacts.append(s"spiflash${id}", 0, s"Binary image to mount to SPI flash memory ${id}")
+  PlusArgArtefacts.append(SPIFlashPlusarg(id), 0, s"Binary image to mount to SPI flash memory ${id}")
 
   require(capacityBytes < 0x100000000L, "SimSPIFlashModel only supports 32-bit addressing")
 
   addResource("/testchipip/vsrc/SimSPIFlashModel.sv")
-  addResource("/testchipip/csrc/SimSPIFlashModel.cc")
-  addResource("/testchipip/csrc/SimSPIFlashModel.h")
+  addResource("/testchipip/vsrc/spi_flash_mem_ctrl.sv")
+  addResource("/testchipip/vsrc/plusarg_file_mem.sv")
+  addResource("/testchipip/csrc/plusarg_file_mem.cc")
+  addResource("/testchipip/csrc/plusarg_file_mem.h")
 }
 
 object SimSPIFlashModel {
