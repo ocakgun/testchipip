@@ -1,6 +1,7 @@
 
 import "DPI-C" function longint plusarg_file_mem_init(
     input string filename,
+    input bit writeable,
     input int addr_bits,
     input int data_bits
 );
@@ -41,7 +42,7 @@ module plusarg_file_mem #(
         assert(ADDR_BITS <= 64);
         assert((DATA_BITS == 8) || (DATA_BITS == 16) || (DATA_BITS == 32) || (DATA_BITS == 64));
         if ($value$plusargs($sformatf("%s=%%s", PLUSARG), filename)) begin
-            dev_ptr = plusarg_file_mem_init(filename, ADDR_BITS, DATA_BITS);
+            dev_ptr = plusarg_file_mem_init(filename, 0, ADDR_BITS, DATA_BITS);
         end else begin
             // Workaround for verilator to write to STDERR
             $fwrite(32'h80000002, "No memory image provided. Use +%s=<file> to specify.\n", PLUSARG);

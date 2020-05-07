@@ -4,17 +4,19 @@
 #include <cstring>
 #include <cinttypes>
 #include <cstdint>
-#include <vector>
-#include <queue>
+#include <fcntl.h>
+#include <unistd.h>
 #include <fesvr/context.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 #include "plusarg_file_mem.h"
 
 // We are returning the pointer to the PlusargFileMem object so that we can have
 // multiple plusarg memories in one sim.
-extern "C" long long plusarg_file_mem_init(const char *filename, int addr_bits, int data_bits)
+extern "C" long long plusarg_file_mem_init(const char *filename, unsigned char writeable, int addr_bits, int data_bits)
 {
-  PlusargFileMem *mem = new PlusargFileMem(filename, (1 << addr_bits), data_bits/8);
+  PlusargFileMem *mem = new PlusargFileMem(filename, (bool)writeable, (1 << addr_bits), data_bits/8);
   return (long long)mem;
 }
 
@@ -30,67 +32,57 @@ extern "C" void plusarg_file_mem_write(long long mem, long long address, long lo
   ((PlusargFileMem *)mem)->write(address, data);
 }
 
-PlusargFileMem::PlusargFileMem(const char *filename, int capacity_words, int data_bytes)
+PlusargFileMem::PlusargFileMem(const char *filename, bool writeable, int capacity_words, int data_bytes)
 {
   long size;
   _capacity_words = capacity_words;
   _capacity_bytes = capacity_words*data_bytes;
   _data_bytes = data_bytes;
 
-  _file = fopen(filename, "r");
-  if (!_file)
+  // open the file
+  _file = open(filename, (writeable ? O_RDWR : O_RDONLY));
+
+  // get the file size
+  struct stat sb;
+  fstat(_file, &sb);
+  _memsize = (uint64_t)sb.st_size;
+
+  // Only mmap capacity if the file is larger than the memory
+  if (_capacity_bytes < _memsize) _memsize = _capacity_bytes;
+  _memblk = mmap(NULL, _memsize, PROT_READ | (writeable ? PROT_WRITE : 0), MAP_SHARED, _file, 0);
+
+  if (_memblk == MAP_FAILED)
   {
-    fprintf(stderr, "Could not open %s\n", filename);
+    fprintf(stderr, "Error mmapping file %s\n", filename);
     abort();
   }
-  if (fseek(_file, 0, SEEK_END))
-  {
-    perror("fseek");
-    abort();
-  }
-  size = ftell(_file);
-  if (size < 0)
-  {
-    perror("ftell");
-    abort();
-  }
+
 }
 
 PlusargFileMem::~PlusargFileMem(void)
 {
-  fclose(_file);
+  munmap(_memblk, _memsize);
+  close(_file);
 }
 
 void PlusargFileMem::read(long long address, long long *data)
 {
 
-  long long buf[0];
+  if (_data_bytes == 1)
+    *data = (0xff & (long long)(((uint8_t *)_memblk)[address]));
 
-  long long addr2 = address;
+  if (_data_bytes == 2)
+    *data = (0xffff & (long long)(((uint16_t *)_memblk)[address]));
 
-  if (address >= _capacity_words)
-  {
-    fprintf(stderr, "Read out of bounds: 0x%016x >= 0x%016x\n", address, _capacity_words);
-    *data = 0xffffffffffffffffL;
-    return;
-  }
+  if (_data_bytes == 4)
+    *data = (0xffffffff & (long long)(((uint32_t *)_memblk)[address]));
 
-  if (fseek(_file, addr2, SEEK_SET))
-  {
-    fprintf(stderr, "Could not seek to 0x%016x\n", addr2);
-    *data = 0xffffffffffffffffL;
-    return;
-  }
-
-  if (fread(data, 1, 1, _file) == 0)
-  {
-    fprintf(stderr, "Cannot read data at 0x%016x\n", addr2);
-    *data = 0xffffffffffffffffL;
-  }
+  if (_data_bytes == 8)
+    *data = (((uint64_t *)_memblk)[address]);
 
 }
 
 void PlusargFileMem::write(long long address, long long data)
 {
-  /* unimp */
+  /* unimplemented */
 }
